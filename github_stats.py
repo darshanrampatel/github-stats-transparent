@@ -503,7 +503,7 @@ Languages:
         if self._lines_changed is not None:
             return self._lines_changed
         end = utc_now()
-        cutoff_ts = int(five_year_cutoff(end).timestamp())
+        cutoff_timestamp = int(five_year_cutoff(end).timestamp())
         additions = 0
         deletions = 0
         for repo in await self.all_repos:
@@ -518,7 +518,9 @@ Languages:
                     continue
 
                 for week in author_obj.get("weeks", []):
-                    if week.get("w", 0) < cutoff_ts:
+                    if not isinstance(week, dict) or "w" not in week:
+                        continue
+                    if week["w"] < cutoff_timestamp:
                         continue
                     additions += week.get("a", 0)
                     deletions += week.get("d", 0)
