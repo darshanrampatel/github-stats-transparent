@@ -502,7 +502,8 @@ Languages:
         """
         if self._lines_changed is not None:
             return self._lines_changed
-        cutoff_ts = int(five_year_cutoff().timestamp())
+        end = utc_now()
+        cutoff_ts = int(five_year_cutoff(end).timestamp())
         additions = 0
         deletions = 0
         for repo in await self.all_repos:
