@@ -2,10 +2,28 @@
 
 import asyncio
 import os
+from datetime import datetime, timezone
 from typing import Dict, List, Optional, Set, Tuple
 
 import aiohttp
 import requests
+
+
+def utc_now() -> datetime:
+    return datetime.now(timezone.utc)
+
+
+def five_year_cutoff(now: Optional[datetime] = None) -> datetime:
+    now = utc_now() if now is None else now
+    try:
+        return now.replace(year=now.year - 5)
+    except ValueError:
+        # Handle Feb 29 on non-leap years
+        return now.replace(month=2, day=28, year=now.year - 5)
+
+
+def to_github_timestamp(dt: datetime) -> str:
+    return dt.astimezone(timezone.utc).isoformat().replace("+00:00", "Z")
 
 
 ###############################################################################
@@ -220,6 +238,28 @@ query {
 query {{
   viewer {{
     {by_years}
+  }}
+}}
+"""
+
+    @staticmethod
+    def contribs_in_range(start: datetime, end: datetime) -> str:
+        """
+        :param start: start time for contribution query
+        :param end: end time for contribution query
+        :return: query to retrieve total contributions in a given time range
+        """
+        return f"""
+query {{
+  viewer {{
+    contributionsCollection(
+      from: "{to_github_timestamp(start)}",
+      to: "{to_github_timestamp(end)}"
+    ) {{
+      contributionCalendar {{
+        totalContributions
+      }}
+    }}
   }}
 }}
 """
@@ -444,19 +484,15 @@ Languages:
         if self._total_contributions is not None:
             return self._total_contributions
 
-        self._total_contributions = 0
-        years = (await self.queries.query(Queries.contrib_years())) \
-            .get("data", {}) \
+        end = utc_now()
+        start = five_year_cutoff(end)
+        self._total_contributions = (await self.queries.query(
+            Queries.contribs_in_range(start, end))
+        ).get("data", {}) \
             .get("viewer", {}) \
             .get("contributionsCollection", {}) \
-            .get("contributionYears", [])
-        by_year = (await self.queries.query(Queries.all_contribs(years))) \
-            .get("data", {}) \
-            .get("viewer", {}).values()
-        for year in by_year:
-            self._total_contributions += year \
-                .get("contributionCalendar", {}) \
-                .get("totalContributions", 0)
+            .get("contributionCalendar", {}) \
+            .get("totalContributions", 0)
         return self._total_contributions
 
     @property
@@ -466,6 +502,7 @@ Languages:
         """
         if self._lines_changed is not None:
             return self._lines_changed
+        cutoff_ts = int(five_year_cutoff().timestamp())
         additions = 0
         deletions = 0
         for repo in await self.all_repos:
@@ -480,6 +517,8 @@ Languages:
                     continue
 
                 for week in author_obj.get("weeks", []):
+                    if week.get("w", 0) < cutoff_ts:
+                        continue
                     additions += week.get("a", 0)
                     deletions += week.get("d", 0)
 
